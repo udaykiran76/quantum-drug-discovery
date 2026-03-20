@@ -1,0 +1,10 @@
+models/
+data/
+__pycache__/
+*.pkl
+*.pyc
+.deepchem/
+report/benchmark.png
+report/aspirin.png
+*.egg-info/
+.env

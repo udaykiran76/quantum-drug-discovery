@@ -8,3 +8,5 @@ report/benchmark.png
 report/aspirin.png
 *.egg-info/
 .env
+quantum-ui/node_modules/
+quantum-ui/build/

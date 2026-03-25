@@ -1,5 +1,5 @@
 deepchem
-rdkit-pypi
+rdkit
 qiskit==0.45.3
 qiskit-machine-learning==0.7.2
 qiskit-aer==0.13.3

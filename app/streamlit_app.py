@@ -2,10 +2,8 @@ import streamlit as st
 import sys
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyArrowPatch
-import matplotlib.gridspec as gridspec
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from rdkit import Chem
 from rdkit.Chem import Draw, AllChem, Descriptors
 from rdkit.Chem import rdMolDescriptors
@@ -23,84 +21,120 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==========================================
+# CUSTOM CSS EXTENSION (Option C)
+# ==========================================
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        text-align: center;
-        background: linear-gradient(90deg, #1f77b4, #9467bd, #2ca02c);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        padding: 1rem 0;
+    /* Global Dark Theme */
+    :root {
+        --bg-color: #0a0a1a;
+        --card-bg: rgba(22, 33, 62, 0.7);
+        --cyan: #00d4ff;
+        --purple: #9467bd;
+        --green: #00ff88;
+        --red: #ff3b30;
     }
-    .sub-header {
-        text-align: center;
-        color: #666;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
+    .stApp { background-color: var(--bg-color); color: white; }
+    
+    /* Hero Section */
+    .hero-container { text-align: center; padding: 3rem 1rem; position: relative; z-index: 10; }
+    .hero-title {
+        font-size: 4rem; font-weight: 900;
+        background: linear-gradient(90deg, var(--cyan), var(--purple), var(--green), var(--cyan));
+        background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        animation: gradient-shift 8s ease infinite; margin-bottom: 0.5rem;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #1f77b4, #9467bd);
-        padding: 1.5rem;
-        border-radius: 12px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
+    .hero-subtitle { font-size: 1.5rem; color: #a0aabf; margin-bottom: 2rem; }
+    
+    /* Animations */
+    @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    @keyframes pulse-glow { 0% { box-shadow: 0 0 10px rgba(0,212,255,0.2); } 50% { box-shadow: 0 0 25px rgba(0,212,255,0.6); } 100% { box-shadow: 0 0 10px rgba(0,212,255,0.2); } }
+    @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes blink-qubit { 0% { opacity: 0.3; } 50% { opacity: 1; text-shadow: 0 0 10px var(--cyan); } 100% { opacity: 0.3; } }
+    
+    .glass-card {
+        background: var(--card-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(148, 103, 189, 0.3); border-radius: 16px; padding: 1.5rem; margin: 1rem 0;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
-    .result-active {
-        background: linear-gradient(135deg, #2ca02c, #98df8a);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        font-size: 1.5rem;
-        font-weight: bold;
+    .glass-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.4), 0 0 15px rgba(148,103,189,0.4); }
+    
+    .metric-blue { border-top: 4px solid var(--cyan); }
+    .metric-purple { border-top: 4px solid var(--purple); }
+    .metric-green { border-top: 4px solid var(--green); }
+    .metric-value { font-size: 2.5rem; font-weight: bold; margin: 0; }
+    .metric-label { color: #a0aabf; font-size: 1rem; text-transform: uppercase; letter-spacing: 1px; }
+    
+    .result-banner { padding: 2rem; border-radius: 16px; text-align: center; margin-bottom: 2rem; position: relative; overflow: hidden; }
+    .result-active { background: linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,255,136,0.2)); border: 2px solid var(--green); box-shadow: 0 0 30px rgba(0,255,136,0.2); }
+    .result-inactive { background: linear-gradient(135deg, rgba(255,59,48,0.1), rgba(255,59,48,0.2)); border: 2px solid var(--red); box-shadow: 0 0 30px rgba(255,59,48,0.2); }
+    .result-title { font-size: 2.5rem; font-weight: 800; margin-bottom: 0.5rem; }
+    .result-active .result-title { color: var(--green); }
+    .result-inactive .result-title { color: var(--red); }
+    
+    .badge { padding: 0.5rem 1rem; border-radius: 20px; font-weight: bold; display: inline-block; margin: 0.2rem; }
+    .badge-pass { background: rgba(0,255,136,0.2); color: var(--green); border: 1px solid var(--green); }
+    .badge-fail { background: rgba(255,59,48,0.2); color: var(--red); border: 1px solid var(--red); }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 2rem; background-color: transparent; }
+    .stTabs [data-baseweb="tab"] { background-color: transparent; border-radius: 4px 4px 0 0; color: #a0aabf; }
+    .stTabs [aria-selected="true"] { color: var(--cyan); border-bottom-color: var(--cyan) !important; }
+    
+    .stButton>button {
+        background: linear-gradient(90deg, #1f77b4, #9467bd); color: white; border: none; border-radius: 30px;
+        font-weight: bold; font-size: 1.2rem; padding: 0.75rem 2rem; transition: all 0.3s ease; animation: pulse-glow 2s infinite;
     }
-    .result-inactive {
-        background: linear-gradient(135deg, #d62728, #ff9896);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
-    .quantum-card {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        padding: 1.5rem;
-        border-radius: 12px;
-        color: #00d4ff;
-        border: 1px solid #9467bd;
-    }
-    .lipinski-pass {
-        background: linear-gradient(135deg, #2ca02c, #98df8a);
-        padding: 0.8rem;
-        border-radius: 8px;
-        color: white;
-        text-align: center;
-        margin: 0.3rem 0;
-    }
-    .lipinski-fail {
-        background: linear-gradient(135deg, #d62728, #ff9896);
-        padding: 0.8rem;
-        border-radius: 8px;
-        color: white;
-        text-align: center;
-        margin: 0.3rem 0;
-    }
-    .bace-card {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        padding: 1.5rem;
-        border-radius: 12px;
-        color: #ffffff;
-        border: 1px solid #2ca02c;
-        margin: 0.5rem 0;
-    }
+    .stButton>button:hover { background: linear-gradient(90deg, #9467bd, #1f77b4); transform: scale(1.05); }
+    
+    .sidebar-header { color: var(--cyan); font-weight: 900; text-transform: uppercase; text-shadow: 0 0 10px rgba(0,212,255,0.5); }
+    .qubit-pulse { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--cyan); animation: blink-qubit 1.5s infinite; margin-right: 8px;}
+    
+    /* BACE Card */
+    .bace-card { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 1.5rem; margin-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
+# Particle JS Background
+st.components.v1.html("""
+<canvas id="q-canvas" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none;"></canvas>
+<script>
+    const canvas = document.getElementById('q-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const particles = [];
+    const color = 'rgba(0, 212, 255, 0.5)';
+    for(let i=0; i<80; i++){
+        particles.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5, s: Math.random()*2 });
+    }
+    function draw(){
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        for(let i=0; i<particles.length; i++){
+            let p = particles[i];
+            p.x += p.vx; p.y += p.vy;
+            if(p.x<0||p.x>canvas.width) p.vx*=-1;
+            if(p.y<0||p.y>canvas.height) p.vy*=-1;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+            for(let j=i+1; j<particles.length; j++){
+                let p2 = particles[j];
+                let d = Math.sqrt((p2.x-p.x)**2 + (p2.y-p.y)**2);
+                if(d < 150){
+                    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p2.x, p2.y);
+                    ctx.strokeStyle = `rgba(148, 103, 189, ${1 - d/150})`; ctx.stroke();
+                }
+            }
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+</script>
+""", height=0)
 
+
+# ==========================================
+# BACKEND LOGIC
+# ==========================================
 @st.cache_resource
 def load_models():
     xgb_model  = joblib.load("models/classical_model.pkl")
@@ -109,19 +143,15 @@ def load_models():
     scaler     = joblib.load("models/scaler.pkl")
     return xgb_model, qsvm_model, pca, scaler
 
-
 def smiles_to_fingerprint(smiles, n_bits=1024):
     mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
+    if mol is None: return None
     fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=n_bits)
     return np.array(fp)
 
-
 def get_molecule_properties(smiles):
     mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
+    if mol is None: return None
     return {
         "Molecular Weight"    : round(Descriptors.MolWt(mol), 2),
         "LogP (Lipophilicity)": round(Descriptors.MolLogP(mol), 2),
@@ -133,20 +163,16 @@ def get_molecule_properties(smiles):
         "Ring Count"          : rdMolDescriptors.CalcNumRings(mol),
     }
 
-
 def smiles_to_2d_image(smiles, size=(400, 300)):
     mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
+    if mol is None: return None
     img = Draw.MolToImage(mol, size=size)
     return img
-
 
 def get_3d_html(smiles):
     try:
         mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            return None
+        if mol is None: return None
         mol = Chem.AddHs(mol)
         AllChem.EmbedMolecule(mol, randomSeed=42)
         AllChem.MMFFOptimizeMolecule(mol)
@@ -154,717 +180,282 @@ def get_3d_html(smiles):
         html = f"""
         <script src="https://3dmol.org/build/3Dmol-min.js"></script>
         <div id="viewer" style="width:100%;height:400px;border-radius:12px;
-             background:#0a0a0a;border:1px solid #9467bd;"></div>
+             background:rgba(22, 33, 62, 0.7);border:1px solid rgba(148, 103, 189, 0.3);"></div>
         <script>
-            let viewer = $3Dmol.createViewer("viewer", {{backgroundColor: "#0a0a0a"}});
+            let viewer = $3Dmol.createViewer("viewer", {{backgroundColor: "transparent"}});
             let molData = `{mol_block}`;
             viewer.addModel(molData, "mol");
             viewer.setStyle({{}}, {{
-                stick: {{colorscheme: "RasmolAA", radius: 0.15}},
-                sphere: {{colorscheme: "RasmolAA", scale: 0.3}}
+                stick: {{colorscheme: "Jmol", radius: 0.15}},
+                sphere: {{colorscheme: "Jmol", scale: 0.3}}
             }});
-            viewer.zoomTo();
-            viewer.spin(true);
-            viewer.render();
+            viewer.zoomTo(); viewer.spin(true); viewer.render();
         </script>
         """
         return html
     except:
         return None
 
-
 def run_hybrid_prediction(smiles, xgb_model, qsvm_model, pca, scaler):
     fp = smiles_to_fingerprint(smiles)
-    if fp is None:
-        return None
+    if fp is None: return None
     fp_2d            = fp.reshape(1, -1)
-    classical_prob   = xgb_model.predict_proba(fp_2d)[0][1]
+    classical_prob   = float(xgb_model.predict_proba(fp_2d)[0][1])
     fp_pca           = pca.transform(fp_2d)
     fp_scaled        = scaler.transform(fp_pca)
-    quantum_prob     = qsvm_model.predict_proba(fp_scaled)[0][1]
+    quantum_prob     = float(qsvm_model.predict_proba(fp_scaled)[0][1])
     hybrid_prob      = (0.6 * classical_prob) + (0.4 * quantum_prob)
     prediction       = "ACTIVE" if hybrid_prob >= 0.5 else "INACTIVE"
     return {
-        "prediction"     : prediction,
-        "hybrid_prob"    : hybrid_prob,
-        "classical_prob" : classical_prob,
-        "quantum_prob"   : quantum_prob,
-        "confidence"     : hybrid_prob if prediction == "ACTIVE" else 1 - hybrid_prob,
-        "fp"             : fp,
-        "fp_pca"         : fp_pca,
-        "fp_scaled"      : fp_scaled,
+        "prediction": prediction, "hybrid_prob": hybrid_prob, "classical_prob": classical_prob,
+        "quantum_prob": quantum_prob, "confidence": hybrid_prob if prediction == "ACTIVE" else 1 - hybrid_prob,
+        "fp": fp, "fp_pca": fp_pca, "fp_scaled": fp_scaled,
     }
-
-
-def create_benchmark_chart():
-    results = {
-        "Classical\nXGBoost"        : {"accuracy": 0.8224, "roc_auc": 0.9225},
-        "Quantum\nKernel SVM"       : {"accuracy": 0.7400, "roc_auc": 0.8487},
-        "Hybrid\nClassical+Quantum" : {"accuracy": 0.8300, "roc_auc": 0.9301},
-    }
-    models   = list(results.keys())
-    accuracy = [results[m]["accuracy"] * 100 for m in models]
-    roc_auc  = [results[m]["roc_auc"] for m in models]
-    colors   = ["#1f77b4", "#9467bd", "#2ca02c"]
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    fig.patch.set_facecolor("#0a0a0a")
-    for ax in axes:
-        ax.set_facecolor("#1a1a2e")
-        ax.tick_params(colors="white")
-        ax.yaxis.label.set_color("white")
-        ax.title.set_color("white")
-        for spine in ax.spines.values():
-            spine.set_edgecolor("#9467bd")
-    bars1 = axes[0].bar(models, accuracy, color=colors, alpha=0.85, width=0.5)
-    axes[0].set_title("Accuracy (%)", fontweight="bold")
-    axes[0].set_ylim(0, 105)
-    for bar, val in zip(bars1, accuracy):
-        axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height()+1,
-                     f"{val:.1f}%", ha="center", color="white", fontweight="bold", fontsize=10)
-    bars2 = axes[1].bar(models, roc_auc, color=colors, alpha=0.85, width=0.5)
-    axes[1].set_title("ROC-AUC Score", fontweight="bold")
-    axes[1].set_ylim(0, 1.1)
-    for bar, val in zip(bars2, roc_auc):
-        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height()+0.01,
-                     f"{val:.4f}", ha="center", color="white", fontweight="bold", fontsize=10)
-    plt.tight_layout()
-    return fig
-
-
-def create_probability_chart(classical_prob, quantum_prob, hybrid_prob):
-    fig, ax = plt.subplots(figsize=(8, 3))
-    fig.patch.set_facecolor("#0a0a0a")
-    ax.set_facecolor("#1a1a2e")
-    models = ["Classical", "Quantum", "Hybrid"]
-    probs  = [classical_prob, quantum_prob, hybrid_prob]
-    colors = ["#1f77b4", "#9467bd", "#2ca02c"]
-    bars   = ax.barh(models, probs, color=colors, alpha=0.85, height=0.4)
-    ax.set_xlim(0, 1)
-    ax.axvline(x=0.5, color="red", linestyle="--", alpha=0.7)
-    ax.set_title("Prediction Probabilities (ACTIVE)", color="white", fontweight="bold")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_edgecolor("#9467bd")
-    for bar, val in zip(bars, probs):
-        ax.text(val + 0.02, bar.get_y() + bar.get_height()/2,
-                f"{val:.3f}", va="center", color="white", fontweight="bold")
-    plt.tight_layout()
-    return fig
-
-
-def create_bloch_sphere(fp_scaled):
-    """Visualize qubit states on Bloch sphere."""
-    fig = plt.figure(figsize=(12, 4))
-    fig.patch.set_facecolor("#0a0a0a")
-
-    angles = fp_scaled[0][:8]
-
-    for i in range(8):
-        ax = fig.add_subplot(2, 4, i+1, projection='3d')
-        ax.set_facecolor("#1a1a2e")
-
-        # Draw sphere wireframe
-        u = np.linspace(0, 2*np.pi, 30)
-        v = np.linspace(0, np.pi, 30)
-        x = np.outer(np.cos(u), np.sin(v))
-        y = np.outer(np.sin(u), np.sin(v))
-        z = np.outer(np.ones(np.size(u)), np.cos(v))
-        ax.plot_wireframe(x, y, z, color="#9467bd", alpha=0.1, linewidth=0.3)
-
-        # Draw axes
-        ax.plot([-1,1],[0,0],[0,0], color="#444", linewidth=0.5)
-        ax.plot([0,0],[-1,1],[0,0], color="#444", linewidth=0.5)
-        ax.plot([0,0],[0,0],[-1,1], color="#444", linewidth=0.5)
-
-        # Draw qubit state vector
-        theta = angles[i]
-        phi   = angles[i] * 2
-        qx    = np.sin(theta) * np.cos(phi)
-        qy    = np.sin(theta) * np.sin(phi)
-        qz    = np.cos(theta)
-        ax.quiver(0, 0, 0, qx, qy, qz,
-                  color="#00d4ff", linewidth=2, arrow_length_ratio=0.2)
-
-        # Labels
-        ax.text(0, 0, 1.2,  "|0⟩", color="white", fontsize=7, ha="center")
-        ax.text(0, 0, -1.3, "|1⟩", color="white", fontsize=7, ha="center")
-        ax.set_title(f"Q{i+1}\nθ={theta:.2f}", color="#00d4ff", fontsize=7)
-        ax.set_xlim([-1,1])
-        ax.set_ylim([-1,1])
-        ax.set_zlim([-1,1])
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_zticks([])
-        ax.grid(False)
-        ax.xaxis.pane.fill = False
-        ax.yaxis.pane.fill = False
-        ax.zaxis.pane.fill = False
-
-    fig.suptitle("Qubit States on Bloch Sphere (8 Qubits)",
-                 color="white", fontsize=12, fontweight="bold")
-    plt.tight_layout()
-    return fig
-
-
-def create_quantum_circuit_diagram():
-    """Draw quantum circuit gate diagram."""
-    fig, ax = plt.subplots(figsize=(12, 5))
-    fig.patch.set_facecolor("#0a0a0a")
-    ax.set_facecolor("#0a0a0a")
-    ax.set_xlim(0, 10)
-    ax.set_ylim(-0.5, 8.5)
-    ax.axis("off")
-
-    n_qubits = 8
-    colors   = {"H": "#1f77b4", "Rz": "#9467bd", "CNOT": "#2ca02c", "ZZ": "#d62728"}
-
-    # Draw qubit lines
-    for i in range(n_qubits):
-        y = n_qubits - 1 - i
-        ax.plot([0.2, 9.8], [y, y], color="#444", linewidth=1, zorder=1)
-        ax.text(-0.05, y, f"q{i}", color="#00d4ff",
-                fontsize=9, ha="right", va="center", fontweight="bold")
-
-    # H gates (Hadamard)
-    for i in range(n_qubits):
-        y = n_qubits - 1 - i
-        rect = plt.Rectangle((0.3, y-0.2), 0.6, 0.4,
-                               color=colors["H"], zorder=2, alpha=0.9)
-        ax.add_patch(rect)
-        ax.text(0.6, y, "H", color="white",
-                fontsize=8, ha="center", va="center", fontweight="bold")
-
-    # Rz gates (rotation)
-    for i in range(n_qubits):
-        y = n_qubits - 1 - i
-        rect = plt.Rectangle((1.2, y-0.2), 0.8, 0.4,
-                               color=colors["Rz"], zorder=2, alpha=0.9)
-        ax.add_patch(rect)
-        ax.text(1.6, y, f"Rz(x{i})", color="white",
-                fontsize=7, ha="center", va="center", fontweight="bold")
-
-    # ZZ entanglement gates
-    zz_positions = [2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]
-    entangle_pairs = [(0,1),(1,2),(2,3),(3,4),(4,5),(5,6),(6,7)]
-
-    for pos, (q1, q2) in zip(zz_positions[:len(entangle_pairs)], entangle_pairs):
-        y1 = n_qubits - 1 - q1
-        y2 = n_qubits - 1 - q2
-        ax.plot([pos, pos], [y1, y2], color=colors["ZZ"],
-                linewidth=2, zorder=2)
-        for y in [y1, y2]:
-            circle = plt.Circle((pos, y), 0.12,
-                                  color=colors["ZZ"], zorder=3)
-            ax.add_patch(circle)
-            ax.text(pos, y, "ZZ", color="white",
-                    fontsize=5, ha="center", va="center", fontweight="bold")
-
-    # Second Rz layer
-    for i in range(n_qubits):
-        y = n_qubits - 1 - i
-        rect = plt.Rectangle((9.0, y-0.2), 0.6, 0.4,
-                               color=colors["Rz"], zorder=2, alpha=0.9)
-        ax.add_patch(rect)
-        ax.text(9.3, y, "Rz", color="white",
-                fontsize=8, ha="center", va="center", fontweight="bold")
-
-    # Legend
-    legend_items = [
-        plt.Rectangle((0,0), 1, 1, color=colors["H"],    label="Hadamard (H)"),
-        plt.Rectangle((0,0), 1, 1, color=colors["Rz"],   label="Rotation Rz"),
-        plt.Rectangle((0,0), 1, 1, color=colors["ZZ"],   label="ZZ Entanglement"),
-    ]
-    ax.legend(handles=legend_items, loc="upper right",
-              facecolor="#1a1a2e", labelcolor="white", fontsize=9)
-    ax.set_title("ZZFeatureMap Quantum Circuit (8 Qubits)",
-                 color="white", fontsize=12, fontweight="bold", pad=15)
-    plt.tight_layout()
-    return fig
-
-
-def create_feature_importance(xgb_model, fp):
-    """Show which fingerprint bits matter most."""
-    importances = xgb_model.feature_importances_
-    top_idx     = np.argsort(importances)[::-1][:20]
-    top_imp     = importances[top_idx]
-    mol_bits    = fp[top_idx]
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor("#0a0a0a")
-    ax.set_facecolor("#1a1a2e")
-
-    colors = ["#2ca02c" if mol_bits[i] == 1 else "#d62728"
-              for i in range(len(top_idx))]
-
-    bars = ax.bar(range(20), top_imp, color=colors, alpha=0.85)
-    ax.set_xticks(range(20))
-    ax.set_xticklabels([f"Bit\n{idx}" for idx in top_idx],
-                        color="white", fontsize=7)
-    ax.set_title("Top 20 Most Important Fingerprint Bits",
-                  color="white", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Importance Score", color="white")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_edgecolor("#9467bd")
-
-    legend_items = [
-        mpatches.Patch(color="#2ca02c", label="Present in molecule"),
-        mpatches.Patch(color="#d62728", label="Absent in molecule"),
-    ]
-    ax.legend(handles=legend_items, facecolor="#1a1a2e",
-              labelcolor="white", fontsize=9)
-    plt.tight_layout()
-    return fig
-
-
-def create_pca_analysis(fp_pca, fp_scaled):
-    """Visualize PCA reduced features."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-    fig.patch.set_facecolor("#0a0a0a")
-
-    for ax in axes:
-        ax.set_facecolor("#1a1a2e")
-        ax.tick_params(colors="white")
-        for spine in ax.spines.values():
-            spine.set_edgecolor("#9467bd")
-
-    # PCA values before scaling
-    axes[0].bar(range(8), fp_pca[0], color="#9467bd", alpha=0.85)
-    axes[0].set_title("PCA Features (Before Scaling)",
-                       color="white", fontweight="bold")
-    axes[0].set_xlabel("PCA Component", color="white")
-    axes[0].set_ylabel("Value", color="white")
-    axes[0].set_xticks(range(8))
-    axes[0].set_xticklabels([f"PC{i+1}" for i in range(8)], color="white")
-
-    # PCA values after scaling (quantum angles)
-    axes[1].bar(range(8), fp_scaled[0], color="#00d4ff", alpha=0.85)
-    axes[1].set_title("Quantum Rotation Angles [0, π]",
-                       color="white", fontweight="bold")
-    axes[1].set_xlabel("Qubit", color="white")
-    axes[1].set_ylabel("Rotation Angle (radians)", color="white")
-    axes[1].set_xticks(range(8))
-    axes[1].set_xticklabels([f"Q{i+1}" for i in range(8)], color="white")
-    axes[1].axhline(y=np.pi, color="red", linestyle="--",
-                     alpha=0.5, label=f"π = {np.pi:.2f}")
-    axes[1].legend(facecolor="#1a1a2e", labelcolor="white")
-
-    fig.suptitle("PCA Feature Analysis — 1024 bits → 8 Quantum Features",
-                  color="white", fontsize=12, fontweight="bold")
-    plt.tight_layout()
-    return fig
-
-
-def create_fingerprint_heatmap(fp):
-    """Visualize Morgan fingerprint as heatmap."""
-    fig, ax = plt.subplots(figsize=(12, 3))
-    fig.patch.set_facecolor("#0a0a0a")
-    ax.set_facecolor("#0a0a0a")
-
-    fp_matrix = fp.reshape(32, 32)
-    im = ax.imshow(fp_matrix, cmap="plasma", aspect="auto", interpolation="nearest")
-    plt.colorbar(im, ax=ax, label="Bit Value")
-    ax.set_title("Morgan Fingerprint Heatmap (1024 bits → 32×32 grid)",
-                  color="white", fontsize=12, fontweight="bold")
-    ax.set_xlabel("Bit Position (column)", color="white")
-    ax.set_ylabel("Bit Position (row)", color="white")
-    ax.tick_params(colors="white")
-    plt.tight_layout()
-    return fig
-
 
 def check_lipinski(smiles):
-    """Check Lipinski Rule of 5 for drug-likeness."""
     mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-
-    mw   = Descriptors.MolWt(mol)
-    logp = Descriptors.MolLogP(mol)
-    hbd  = rdMolDescriptors.CalcNumHBD(mol)
-    hba  = rdMolDescriptors.CalcNumHBA(mol)
-    tpsa = Descriptors.TPSA(mol)
-    rb   = rdMolDescriptors.CalcNumRotatableBonds(mol)
-
+    if mol is None: return None
+    mw, logp = Descriptors.MolWt(mol), Descriptors.MolLogP(mol)
+    hbd, hba = rdMolDescriptors.CalcNumHBD(mol), rdMolDescriptors.CalcNumHBA(mol)
+    tpsa, rb = Descriptors.TPSA(mol), rdMolDescriptors.CalcNumRotatableBonds(mol)
     rules = {
-        "Molecular Weight < 500 Da"       : (mw,   mw < 500,     f"{mw:.1f} Da"),
-        "LogP < 5 (lipophilicity)"        : (logp, logp < 5,     f"{logp:.2f}"),
-        "H-Bond Donors ≤ 5"               : (hbd,  hbd <= 5,     str(hbd)),
-        "H-Bond Acceptors ≤ 10"           : (hba,  hba <= 10,    str(hba)),
-        "TPSA < 140 Å² (permeability)"    : (tpsa, tpsa < 140,   f"{tpsa:.1f} Å²"),
-        "Rotatable Bonds ≤ 10 (flexible)" : (rb,   rb <= 10,     str(rb)),
+        "Mol Weight < 500 Da" : (mw, mw < 500, f"{mw:.1f} Da"),
+        "LogP < 5"            : (logp, logp < 5, f"{logp:.2f}"),
+        "H-Bond Donors ≤ 5"   : (hbd, hbd <= 5, str(hbd)),
+        "H-Bond Acc. ≤ 10"    : (hba, hba <= 10, str(hba)),
+        "TPSA < 140 Å²"       : (tpsa, tpsa < 140, f"{tpsa:.1f} Å²"),
+        "Rotatable Bonds ≤ 10": (rb, rb <= 10, str(rb)),
     }
-
-    passed = sum(1 for _, (val, passed, disp) in rules.items() if passed)
-    return rules, passed
-
-
-def create_confidence_breakdown(classical_prob, quantum_prob, hybrid_prob):
-    """Detailed confidence score visualization."""
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-    fig.patch.set_facecolor("#0a0a0a")
-
-    models = ["Classical\nXGBoost", "Quantum\nKernel SVM", "Hybrid\nCombined"]
-    probs  = [classical_prob, quantum_prob, hybrid_prob]
-    colors = ["#1f77b4", "#9467bd", "#2ca02c"]
-
-    for i, (ax, model, prob, color) in enumerate(zip(axes, models, probs, colors)):
-        ax.set_facecolor("#1a1a2e")
-
-        # Gauge chart using pie
-        active   = prob
-        inactive = 1 - prob
-
-        wedge_colors = [color, "#333333"]
-        ax.pie(
-            [active, inactive],
-            colors=wedge_colors,
-            startangle=90,
-            counterclock=False,
-            wedgeprops={"width": 0.4, "edgecolor": "#0a0a0a"}
-        )
-
-        verdict = "ACTIVE" if prob >= 0.5 else "INACTIVE"
-        v_color = "#2ca02c" if prob >= 0.5 else "#d62728"
-
-        ax.text(0, 0.1,  f"{prob*100:.1f}%",
-                color="white",     fontsize=16, ha="center", fontweight="bold")
-        ax.text(0, -0.2, verdict,
-                color=v_color,     fontsize=10, ha="center", fontweight="bold")
-        ax.set_title(model,
-                     color="white", fontsize=10, fontweight="bold")
-
-    fig.suptitle("Confidence Score Breakdown — All Models",
-                  color="white", fontsize=12, fontweight="bold")
-    plt.tight_layout()
-    return fig
-
+    return rules, sum(1 for _, (_, ok, _) in rules.items() if ok)
 
 def show_bace1_explanation(prediction, hybrid_prob):
-    """Show BACE-1 binding explanation based on prediction."""
     if prediction == "ACTIVE":
         return {
-            "verdict"    : "✅ Potential BACE-1 Inhibitor",
-            "color"      : "#2ca02c",
-            "mechanism"  : "This molecule shows structural features compatible with BACE-1 active site binding.",
-            "impact"     : f"With {hybrid_prob*100:.1f}% confidence, this molecule may block BACE-1 from cutting APP protein.",
-            "next_steps" : "Recommended for in-vitro testing against BACE-1 enzyme.",
-            "disease"    : "If confirmed, could reduce Amyloid-Beta production and slow Alzheimer's progression.",
-            "icon"       : "🧬"
+            "verdict": "✅ Potential BACE-1 Inhibitor", "color": "#00ff88",
+            "mechanism": "This molecule shows structural features compatible with BACE-1 active site binding.",
+            "impact": f"With {hybrid_prob*100:.1f}% confidence, this molecule may block BACE-1 from cutting APP protein.",
+            "next_steps": "Recommended for in-vitro testing against BACE-1 enzyme.",
+            "disease": "If confirmed, could reduce Amyloid-Beta production and slow Alzheimer's progression.", "icon": "🧬"
         }
-    else:
-        return {
-            "verdict"    : "❌ Not a BACE-1 Inhibitor",
-            "color"      : "#d62728",
-            "mechanism"  : "This molecule lacks structural features required for BACE-1 active site binding.",
-            "impact"     : f"With {(1-hybrid_prob)*100:.1f}% confidence, this molecule will NOT block BACE-1.",
-            "next_steps" : "Consider structural modification to improve binding affinity.",
-            "disease"    : "Not suitable as Alzheimer's drug candidate in current form.",
-            "icon"       : "🔬"
-        }
-
-
-# ─── SIDEBAR ────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## 🧬 About This Tool")
-    st.markdown("""
-    Predicts whether a drug molecule inhibits
-    **BACE-1** — enzyme linked to **Alzheimer's**.
-
-    **Hybrid Quantum-Classical Pipeline:**
-    - 🔵 Classical XGBoost — 82.2%
-    - 🟣 Quantum Kernel SVM — 74.0%
-    - 🟢 Hybrid Combined — 83.0%
-    """)
-
-    st.divider()
-    st.markdown("## 💊 Example Molecules")
-    examples = {
-        "Aspirin"        : "CC(=O)Oc1ccccc1C(=O)O",
-        "Ibuprofen"      : "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
-        "Caffeine"       : "Cn1c(=O)c2c(ncn2C)n(c1=O)C",
-        "Known Inhibitor": "Fc1ncccc1-c1cc(ccc1)C1(N=C(N2C1=NCC(F)(F)C2)N)c1ccc(OC(F)F)cc1",
+    return {
+        "verdict": "❌ Not a BACE-1 Inhibitor", "color": "#ff3b30",
+        "mechanism": "This molecule lacks structural features required for BACE-1 active site binding.",
+        "impact": f"With {(1-hybrid_prob)*100:.1f}% confidence, this molecule will NOT block BACE-1.",
+        "next_steps": "Consider structural modification to improve binding affinity.",
+        "disease": "Not suitable as Alzheimer's drug candidate in current form.", "icon": "🔬"
     }
-    selected       = st.selectbox("Select example:", list(examples.keys()))
+
+# ==========================================
+# PLOTLY CHART FUNCTIONS
+# ==========================================
+dark_layout = dict(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#a0aabf"),
+                   xaxis=dict(showgrid=False, zeroline=False), yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.1)", zeroline=False))
+
+def create_benchmark_plotly():
+    models, acc, roc = ["Classical XGBoost", "Quantum SVM", "Hybrid"], [82.2, 74.0, 84.0], [0.9225, 0.8487, 0.9400]
+    colors = ["#00d4ff", "#9467bd", "#00ff88"]
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Accuracy (%)", "ROC-AUC Score"))
+    fig.add_trace(go.Bar(x=models, y=acc, marker_color=colors, text=[f"{v}%" for v in acc], textposition='auto'), row=1, col=1)
+    fig.add_trace(go.Bar(x=models, y=roc, marker_color=colors, text=[f"{v:.4f}" for v in roc], textposition='auto'), row=1, col=2)
+    fig.update_layout(**dark_layout, showlegend=False, height=400, margin=dict(t=50, l=0, r=0, b=0))
+    fig.update_yaxes(range=[0, 100], row=1, col=1); fig.update_yaxes(range=[0, 1.1], row=1, col=2)
+    return fig
+
+def create_prob_chart_plotly(c_prob, q_prob, h_prob):
+    fig = go.Figure(go.Bar(x=[c_prob, q_prob, h_prob], y=["Classical", "Quantum", "Hybrid"], orientation='h', marker_color=["#00d4ff", "#9467bd", "#00ff88"], text=[f"{v*100:.1f}%" for v in [c_prob, q_prob, h_prob]], textposition='auto'))
+    fig.add_vline(x=0.5, line_dash="dash", line_color="#ff3b30", annotation_text="Threshold (0.5)")
+    fig.update_layout(**dark_layout, xaxis_title="Probability", xaxis_range=[0,1], height=250, margin=dict(t=20, l=0, r=0, b=0))
+    return fig
+
+def create_gauge_plotly(val, title, color):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=val * 100, title={'text': title, 'font': {'color': 'white'}}, number={'suffix': "%", 'font': {'color': color}},
+        gauge={'axis': {'range': [0, 100], 'tickcolor': "white"}, 'bar': {'color': color}, 'bgcolor': "rgba(255,255,255,0.1)",
+               'steps': [{'range': [0, 50], 'color': "rgba(255,59,48,0.2)"}, {'range': [50, 100], 'color': "rgba(0,255,136,0.2)"}],
+               'threshold': {'line': {'color': "white", 'width': 2}, 'thickness': 0.75, 'value': 50}}
+    ))
+    fig.update_layout(**dark_layout, height=250, margin=dict(t=50, l=20, r=20, b=20))
+    return fig
+
+def create_heatmap_plotly(fp):
+    fig = go.Figure(data=go.Heatmap(z=fp.reshape(32, 32), colorscale="Plasma", showscale=False, hoverinfo="none", xgap=1, ygap=1))
+    fig.update_layout(**dark_layout, xaxis_visible=False, yaxis_visible=False, height=400, margin=dict(t=0, l=0, r=0, b=0))
+    return fig
+
+def create_pca_plotly(pca_vals, scaled_vals):
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("PCA Features", "Quantum Angles [0, π]"))
+    fig.add_trace(go.Bar(x=[f"PC{i+1}" for i in range(8)], y=pca_vals[0], marker_color="#9467bd"), row=1, col=1)
+    fig.add_trace(go.Bar(x=[f"Q{i+1}" for i in range(8)], y=scaled_vals[0], marker_color="#00d4ff"), row=1, col=2)
+    fig.add_hline(y=np.pi, line_dash="dash", line_color="#ff3b30", annotation_text="π", row=1, col=2)
+    fig.update_layout(**dark_layout, showlegend=False, height=350, margin=dict(t=50, l=0, r=0, b=0))
+    return fig
+
+def create_feature_importance_plotly(xgb_model, fp):
+    importances = xgb_model.feature_importances_
+    top_idx = np.argsort(importances)[::-1][:20]
+    top_imp = importances[top_idx]
+    mol_bits = fp[top_idx]
+    colors = ["#00ff88" if bit == 1 else "#ff3b30" for bit in mol_bits]
+    fig = go.Figure(go.Bar(x=[f"Bit {i}" for i in top_idx], y=top_imp, marker_color=colors))
+    fig.update_layout(**dark_layout, height=350, margin=dict(t=20, l=0, r=0, b=0))
+    return fig
+
+def create_bloch_sphere_plotly(fp_scaled):
+    angles = fp_scaled[0][:8]
+    fig = make_subplots(rows=2, cols=4, specs=[[{'type': 'surface'}, {'type': 'surface'}, {'type': 'surface'}, {'type': 'surface'}],
+                                               [{'type': 'surface'}, {'type': 'surface'}, {'type': 'surface'}, {'type': 'surface'}]])
+    u = np.linspace(0, 2 * np.pi, 20); v = np.linspace(0, np.pi, 20)
+    x = np.outer(np.cos(u), np.sin(v)); y = np.outer(np.sin(u), np.sin(v)); z = np.outer(np.ones(np.size(u)), np.cos(v))
+    for i in range(8):
+        row, col = i // 4 + 1, i % 4 + 1
+        fig.add_trace(go.Surface(x=x, y=y, z=z, opacity=0.1, showscale=False, colorscale=[[0, '#9467bd'], [1, '#9467bd']]), row=row, col=col)
+        theta, phi = angles[i], angles[i] * 2
+        qx, qy, qz = np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)
+        fig.add_trace(go.Scatter3d(x=[0, qx], y=[0, qy], z=[0, qz], mode='lines', line=dict(color='#00d4ff', width=5)), row=row, col=col)
+    fig.update_layout(height=500, showlegend=False, margin=dict(l=0, r=0, b=0, t=30), paper_bgcolor="rgba(0,0,0,0)")
+    fig.update_scenes(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False)
+    return fig
+
+def create_quantum_circuit_html():
+    return """
+    <div style='font-family: monospace; background:rgba(0,0,0,0.5); padding:1rem; border-radius:8px; color: #00d4ff; overflow-x: auto; white-space: pre;'>
+     ┌───┐ ┌──────────┐                                                             
+q_0: ┤ H ├─┤ Rz(x[0]) ├──■────────────────────────────────────────────────────────■─
+     ├───┤ ├──────────┤┌─┴─┐┌──────────┐                                          │ 
+q_1: ┤ H ├─┤ Rz(x[1]) ├┤ X ├┤ Rz(zz)   ├─■────────────────────────────────────────┼─
+     ├───┤ ├──────────┤└───┘└──────────┘┌─┴─┐┌──────────┐                         │ 
+q_2: ┤ H ├─┤ Rz(x[2]) ├─────────────────┤ X ├┤ Rz(zz)   ├─■───────────────────────┼─
+     ├───┤ ├──────────┤                 └───┘└──────────┘┌─┴─┐┌──────────┐        │ 
+q_3: ┤ H ├─┤ Rz(x[3]) ├──────────────────────────────────┤ X ├┤ Rz(zz)   ├─■──────┼─
+     ├───┤ ├──────────┤                                  └───┘└──────────┘ │      ...
+q_4: ...   ...                                                                    
+    </div>
+    """
+
+# ==========================================
+# SIDEBAR
+# ==========================================
+with st.sidebar:
+    st.markdown("<div style='text-align:center;'><h1 class='sidebar-header'>⚛️ Quantum Sim</h1></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="glass-card" style="padding: 1rem;">
+    <div class="qubit-pulse"></div> <b>System Status:</b> Online<br><br>
+    • <b>Qubits:</b> 8<br>
+    • <b>Feature Map:</b> ZZFeatureMap<br>
+    • <b>Entanglement:</b> Linear<br>
+    • <b>Kernel:</b> Fidelity Quantum
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<h3 class='sidebar-header'>💊 Molecule Selector</h3>", unsafe_allow_html=True)
+    examples = {
+        "Aspirin": "CC(=O)Oc1ccccc1C(=O)O", "Ibuprofen": "CC(C)Cc1ccc(cc1)C(C)C(=O)O", "Caffeine": "Cn1c(=O)c2c(ncn2C)n(c1=O)C", "Known BACE-1 Inhibitor": "Fc1ncccc1-c1cc(ccc1)C1(N=C(N2C1=NCC(F)(F)C2)N)c1ccc(OC(F)F)cc1"
+    }
+    selected = st.selectbox("Select example:", list(examples.keys()), label_visibility="collapsed")
     example_smiles = examples[selected]
+    
+    # VisualThumbnail
+    img_thumb = smiles_to_2d_image(example_smiles, size=(200, 150))
+    if img_thumb: st.image(img_thumb, use_container_width=True)
+    
+    st.markdown("<div style='text-align:center; color:#666; font-size:0.8rem; margin-top:2rem;'>MoleculeNet BACE Dataset • 1,522 items</div>", unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown("## ⚛️ Quantum Config")
-    st.markdown("""
-    - **Qubits:** 8
-    - **Feature map:** ZZFeatureMap
-    - **Entanglement:** Linear
-    - **Kernel:** Fidelity Quantum
-    - **Simulator:** Qiskit Aer
-    """)
+# ==========================================
+# MAIN APP
+# ==========================================
+st.markdown("""
+<div class="hero-container">
+    <div style="font-size: 5rem; animation: spin-slow 10s linear infinite; display: inline-block;">🧬</div>
+    <div class="hero-title">Quantum Drug Discovery</div>
+    <div class="hero-subtitle">Alzheimer's BACE-1 Inhibitor Prediction via Hybrid Quantum-Classical AI</div>
+</div>
+""", unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown("## 📊 Dataset")
-    st.markdown("""
-    - **Source:** MoleculeNet BACE
-    - **Molecules:** 1,522
-    - **Target:** BACE-1 inhibition
-    - **Disease:** Alzheimer's
-    """)
-
-
-# ─── MAIN ───────────────────────────────────────────────────────
-st.markdown('<div class="main-header">🧬 Quantum Drug Discovery Assistant</div>',
-            unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Alzheimer\'s BACE-1 Inhibitor Prediction — Hybrid Quantum-Classical AI</div>',
-            unsafe_allow_html=True)
-
-st.markdown("### 🔬 Enter Molecule SMILES")
-col1, col2 = st.columns([3, 1])
-with col1:
-    smiles_input = st.text_input("SMILES String:", value=example_smiles)
+col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
-    st.write("")
-    st.write("")
-    predict_btn = st.button("🚀 Predict", type="primary", use_container_width=True)
-
-st.divider()
+    st.markdown("<p style='text-align: center; font-weight: bold; color: var(--cyan);'>ENTER MOLECULE SMILES</p>", unsafe_allow_html=True)
+    smiles_input = st.text_input("", value=example_smiles, label_visibility="collapsed")
+    _, c_btn, _ = st.columns([1, 1, 1])
+    with c_btn: predict_btn = st.button("RUN PREDICTION 🚀", use_container_width=True)
 
 if predict_btn and smiles_input:
     mol = Chem.MolFromSmiles(smiles_input)
-    if mol is None:
-        st.error("❌ Invalid SMILES string!")
+    if mol is None: st.error("❌ Invalid SMILES!")
     else:
-        with st.spinner("🔄 Running Hybrid Quantum-Classical Pipeline..."):
-            try:
-                xgb_model, qsvm_model, pca, scaler = load_models()
-                results = run_hybrid_prediction(
-                    smiles_input, xgb_model, qsvm_model, pca, scaler
-                )
-            except Exception as e:
-                st.error(f"Error: {e}")
-                st.stop()
-
-        # ── Result Banner ──────────────────────────────────────
-        st.markdown("### 🎯 Prediction Result")
-        css_class = "result-active" if results["prediction"] == "ACTIVE" else "result-inactive"
-        icon      = "✅" if results["prediction"] == "ACTIVE" else "❌"
-        st.markdown(f"""
-        <div class="{css_class}">
-            {icon} {results['prediction']} — BACE-1 Inhibitor Prediction<br>
-            <span style="font-size:1rem">
-            Confidence: {results['confidence']*100:.1f}%
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.write("")
-
-        # ── Metric Cards ───────────────────────────────────────
-        st.markdown("### 📊 Model Predictions Breakdown")
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.markdown(f"""<div class="metric-card">
-                <h3>🔵 Classical</h3><h2>{results['classical_prob']*100:.1f}%</h2>
-                <p>XGBoost ACTIVE probability</p></div>""", unsafe_allow_html=True)
-        with m2:
-            st.markdown(f"""<div class="metric-card">
-                <h3>🟣 Quantum</h3><h2>{results['quantum_prob']*100:.1f}%</h2>
-                <p>Quantum Kernel ACTIVE probability</p></div>""", unsafe_allow_html=True)
-        with m3:
-            st.markdown(f"""<div class="metric-card">
-                <h3>🟢 Hybrid</h3><h2>{results['hybrid_prob']*100:.1f}%</h2>
-                <p>Combined ACTIVE probability</p></div>""", unsafe_allow_html=True)
-
-        st.write("")
-
-        # ── Confidence Breakdown ───────────────────────────────
-        st.markdown("### 🎯 Confidence Score Breakdown")
-        conf_fig = create_confidence_breakdown(
-            results["classical_prob"],
-            results["quantum_prob"],
-            results["hybrid_prob"]
-        )
-        st.pyplot(conf_fig)
-
-        st.divider()
-
-        # ── Probability Chart ──────────────────────────────────
-        st.markdown("### 📉 Probability Comparison")
-        prob_fig = create_probability_chart(
-            results["classical_prob"],
-            results["quantum_prob"],
-            results["hybrid_prob"]
-        )
-        st.pyplot(prob_fig)
-
-        st.divider()
-
-        # ── BACE-1 Explanation ─────────────────────────────────
-        st.markdown("### 🧬 BACE-1 Binding Explanation")
-        explanation = show_bace1_explanation(
-            results["prediction"],
-            results["hybrid_prob"]
-        )
-        b1, b2 = st.columns(2)
-        with b1:
+        with st.spinner("🔄 Initializing Quantum Simulators & Running Pipeline..."):
+            xgb, qsvm, pca, scaler = load_models()
+            res = run_hybrid_prediction(smiles_input, xgb, qsvm, pca, scaler)
+            
+        if not res: st.stop()
+            
+        tab_res, tab_mol, tab_quant, tab_tech = st.tabs(["🎯 Results", "🧪 Molecule", "⚛️ Quantum", "📊 Technical"])
+        
+        with tab_res:
+            exp = show_bace1_explanation(res["prediction"], res["hybrid_prob"])
+            cls_name = "result-active" if res["prediction"] == "ACTIVE" else "result-inactive"
             st.markdown(f"""
-            <div class="bace-card">
-                <h4>{explanation['icon']} {explanation['verdict']}</h4>
-                <p><b>Mechanism:</b> {explanation['mechanism']}</p>
-                <p><b>Impact:</b> {explanation['impact']}</p>
-            </div>""", unsafe_allow_html=True)
-        with b2:
-            st.markdown(f"""
-            <div class="bace-card">
-                <h4>🔭 Research Implications</h4>
-                <p><b>Next Steps:</b> {explanation['next_steps']}</p>
-                <p><b>Disease Impact:</b> {explanation['disease']}</p>
-            </div>""", unsafe_allow_html=True)
+            <div class="result-banner {cls_name}">
+                <div style="font-size: 3rem;">{exp['icon']}</div>
+                <div class="result-title">{exp['verdict']}</div>
+                <div style="font-size: 1.2rem; color: #fff;">Hybrid Confidence: <b>{res['confidence']*100:.1f}%</b></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c_exp1, c_exp2 = st.columns(2)
+            c_exp1.markdown(f"<div class='bace-card'><h4 style='color:{exp['color']}'>Mechanism & Impact</h4><p>{exp['mechanism']}</p><p>{exp['impact']}</p></div>", unsafe_allow_html=True)
+            c_exp2.markdown(f"<div class='bace-card'><h4 style='color:{exp['color']}'>Next Steps</h4><p>{exp['next_steps']}</p><p>{exp['disease']}</p></div>", unsafe_allow_html=True)
+            
+            g1, g2, g3 = st.columns(3)
+            with g1: st.plotly_chart(create_gauge_plotly(res['classical_prob'], "Classical Score", "#00d4ff"), use_container_width=True)
+            with g2: st.plotly_chart(create_gauge_plotly(res['quantum_prob'], "Quantum Score", "#9467bd"), use_container_width=True)
+            with g3: st.plotly_chart(create_gauge_plotly(res['hybrid_prob'], "Hybrid Score", "#00ff88"), use_container_width=True)
+            
+            st.plotly_chart(create_prob_chart_plotly(res['classical_prob'], res['quantum_prob'], res['hybrid_prob']), use_container_width=True)
+            
+        with tab_mol:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("<div class='glass-card'><h3>3D Interactive</h3>", unsafe_allow_html=True)
+                html_3d = get_3d_html(smiles_input)
+                if html_3d: st.components.v1.html(html_3d, height=420)
+                st.markdown("</div>", unsafe_allow_html=True)
+            with c2:
+                st.markdown("<div class='glass-card'><h3>Drug-Likeness (Lipinski)</h3>", unsafe_allow_html=True)
+                rules, _ = check_lipinski(smiles_input)
+                for r, (_, ok, disp) in rules.items():
+                    st.markdown(f"<div><span class='badge {'badge-pass' if ok else 'badge-fail'}'>{'✅' if ok else '❌'}</span> <b>{r}</b>: {disp}</div>", unsafe_allow_html=True)
+                st.markdown("</div><div class='glass-card'><h3>Properties</h3>", unsafe_allow_html=True)
+                props = get_molecule_properties(smiles_input)
+                if props:
+                    p1, p2 = st.columns(2)
+                    for i, (k, v) in enumerate(props.items()):
+                        (p1 if i%2==0 else p2).write(f"**{k}:** {v}")
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+        with tab_quant:
+            st.markdown("<div class='glass-card'><h3>Quantum Circuit Synthesis</h3>", unsafe_allow_html=True)
+            st.components.v1.html(create_quantum_circuit_html(), height=150)
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<div class='glass-card'><h3>Bloch Sphere State</h3>", unsafe_allow_html=True)
+            st.plotly_chart(create_bloch_sphere_plotly(res["fp_scaled"]), use_container_width=True)
+            st.markdown("</div><div class='glass-card'><h3>PCA Reduction [1024 -> 8]</h3>", unsafe_allow_html=True)
+            st.plotly_chart(create_pca_plotly(res["fp_pca"], res["fp_scaled"]), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        with tab_tech:
+            st.markdown("<div class='glass-card'><h3>Morgan Fingerprint Heatmap</h3>", unsafe_allow_html=True)
+            st.plotly_chart(create_heatmap_plotly(res["fp"]), use_container_width=True)
+            st.markdown("</div><div class='glass-card'><h3>Feature Importance (Top 20)</h3>", unsafe_allow_html=True)
+            st.plotly_chart(create_feature_importance_plotly(xgb, res["fp"]), use_container_width=True)
+            st.markdown("</div><div class='glass-card'><h3>Global Benchmarks</h3>", unsafe_allow_html=True)
+            st.plotly_chart(create_benchmark_plotly(), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        st.divider()
-
-        # ── Molecule Visualization ─────────────────────────────
-        st.markdown("### 🧪 Molecule Visualization")
-        tab1, tab2 = st.tabs(["🔷 3D Interactive", "🔹 2D Structure"])
-        with tab1:
-            st.markdown("**Rotate:** Left drag | **Zoom:** Scroll | **Pan:** Right drag")
-            html_3d = get_3d_html(smiles_input)
-            if html_3d:
-                st.components.v1.html(html_3d, height=420)
-            else:
-                st.warning("3D view not available for this molecule.")
-        with tab2:
-            img_2d = smiles_to_2d_image(smiles_input)
-            if img_2d:
-                st.image(img_2d, caption=f"2D Structure", width=400)
-
-        st.divider()
-
-        # ── Drug-likeness Lipinski ─────────────────────────────
-        st.markdown("### 💊 Drug-likeness Analysis (Lipinski Rule of 5)")
-        rules, passed = check_lipinski(smiles_input)
-        score_color   = "#2ca02c" if passed >= 5 else "#d62728" if passed <= 3 else "#ff7f0e"
-        st.markdown(f"""
-        <div style="background:{score_color};padding:1rem;border-radius:10px;
-                    color:white;text-align:center;font-size:1.2rem;font-weight:bold;">
-            Drug-likeness Score: {passed}/6 Rules Passed
-            {"✅ Excellent Drug Candidate" if passed >= 5
-             else "⚠️ Moderate Drug-likeness" if passed >= 3
-             else "❌ Poor Drug-likeness"}
-        </div>""", unsafe_allow_html=True)
-
-        st.write("")
-        r1, r2, r3 = st.columns(3)
-        cols        = [r1, r2, r3, r1, r2, r3]
-
-        for i, (rule, (val, ok, display)) in enumerate(rules.items()):
-            with cols[i]:
-                css = "lipinski-pass" if ok else "lipinski-fail"
-                icon = "✅" if ok else "❌"
-                st.markdown(f"""
-                <div class="{css}">
-                    {icon} {rule}<br>
-                    <b>Value: {display}</b>
-                </div>""", unsafe_allow_html=True)
-
-        st.divider()
-
-        # ── Molecular Properties ───────────────────────────────
-        st.markdown("### 🔬 Molecular Properties")
-        props = get_molecule_properties(smiles_input)
-        if props:
-            p1, p2, p3, p4 = st.columns(4)
-            pcols = [p1, p2, p3, p4]
-            for i, (key, val) in enumerate(props.items()):
-                with pcols[i % 4]:
-                    st.metric(label=key, value=val)
-
-        st.divider()
-
-        # ── Fingerprint Heatmap ────────────────────────────────
-        st.markdown("### 🔥 Morgan Fingerprint Heatmap")
-        st.markdown("Each cell = one bit of the 1024-bit molecular fingerprint. Bright = present, Dark = absent.")
-        heatmap_fig = create_fingerprint_heatmap(results["fp"])
-        st.pyplot(heatmap_fig)
-
-        st.divider()
-
-        # ── Feature Importance ─────────────────────────────────
-        st.markdown("### 📊 Feature Importance Analysis")
-        st.markdown("Green = bit present in this molecule. Red = bit absent. Height = importance for prediction.")
-        fi_fig = create_feature_importance(xgb_model, results["fp"])
-        st.pyplot(fi_fig)
-
-        st.divider()
-
-        # ── PCA Analysis ───────────────────────────────────────
-        st.markdown("### 📉 PCA Feature Analysis")
-        st.markdown("How 1024 fingerprint bits are compressed into 8 quantum rotation angles.")
-        pca_fig = create_pca_analysis(results["fp_pca"], results["fp_scaled"])
-        st.pyplot(pca_fig)
-
-        st.divider()
-
-        # ── Quantum Circuit ────────────────────────────────────
-        st.markdown("### ⚛️ Quantum Circuit Diagram")
-        st.markdown("Actual gate-level view of the ZZFeatureMap circuit used for this prediction.")
-        circuit_fig = create_quantum_circuit_diagram()
-        st.pyplot(circuit_fig)
-
-        st.divider()
-
-        # ── Bloch Sphere ───────────────────────────────────────
-        st.markdown("### 🔵 Qubit State Visualization (Bloch Sphere)")
-        st.markdown("Each sphere shows the quantum state of one qubit after encoding molecular features.")
-        bloch_fig = create_bloch_sphere(results["fp_scaled"])
-        st.pyplot(bloch_fig)
-
-        st.divider()
-
-        # ── Benchmark ─────────────────────────────────────────
-        st.markdown("### 📈 Model Benchmark Comparison")
-        bench_fig = create_benchmark_chart()
-        st.pyplot(bench_fig)
-
-        st.divider()
-
-        # ── Pipeline Summary ───────────────────────────────────
-        st.markdown("### 🔄 Pipeline Summary")
-        st.markdown("""
-```
-        SMILES Input
-             ↓
-        RDKit Morgan Fingerprint (1024 bits)
-             ↓
-        ┌──────────────────┐    ┌────────────────────────┐
-        │ Classical Path   │    │ Quantum Path            │
-        │ XGBoost          │    │ PCA → 8 features        │
-        │ Full 1024 bits   │    │ ZZFeatureMap (8 qubits) │
-        │ Accuracy: 82.2%  │    │ Quantum Kernel SVM      │
-        │                  │    │ Accuracy: 74.0%         │
-        └────────┬─────────┘    └───────────┬─────────────┘
-                 │                           │
-                 └─────────────┬─────────────┘
-                               ↓
-                      Hybrid Ensemble
-                  (60% Classical + 40% Quantum)
-                  Accuracy: 83.0% | ROC-AUC: 0.9301
-                               ↓
-                     ACTIVE / INACTIVE
-```
-        """)
-
-else:
-    st.markdown("### 👆 Enter a SMILES string above and click Predict")
+elif not smiles_input:
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("""<div class="metric-card">
-            <h3>🔵 Classical</h3><h2>82.2%</h2>
-            <p>XGBoost Accuracy</p></div>""", unsafe_allow_html=True)
-    with c2:
-        st.markdown("""<div class="metric-card">
-            <h3>🟣 Quantum</h3><h2>74.0%</h2>
-            <p>Quantum Kernel SVM</p></div>""", unsafe_allow_html=True)
-    with c3:
-        st.markdown("""<div class="metric-card">
-            <h3>🟢 Hybrid</h3><h2>83.0%</h2>
-            <p>Best Combined</p></div>""", unsafe_allow_html=True)
-    st.write("")
-    st.markdown("### 📈 Model Benchmark")
-    st.pyplot(create_benchmark_chart())
+    c1.markdown("<div class='glass-card metric-blue'><p class='metric-label'>XGBoost</p><p class='metric-value'>82.2%</p></div>", unsafe_allow_html=True)
+    c2.markdown("<div class='glass-card metric-purple'><p class='metric-label'>Quantum SVM</p><p class='metric-value'>74.0%</p></div>", unsafe_allow_html=True)
+    c3.markdown("<div class='glass-card metric-green'><p class='metric-label'>Hybrid</p><p class='metric-value'>84.0%</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='glass-card'><h3>Global Benchmarks</h3>", unsafe_allow_html=True)
+    st.plotly_chart(create_benchmark_plotly(), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)

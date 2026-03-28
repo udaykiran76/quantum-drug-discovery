@@ -76,3 +76,5 @@ Molecular Visualization
 🗄️ Database integration (PostgreSQL / MongoDB)
 🧬 Molecule generation using generative models
 📊 Explainability using SHAP
+
+use to help further in in initial phase of the discovery and save billions of money.
